@@ -31,6 +31,25 @@ const customerSchema = new Schema({
   centerNo: { type: String, required: true },
 });
 
+const LoanSchema = new Schema({
+  loanid: { type: Number, required: true },
+  memberCode: { type: Number, required: true },
+  centerNO: { type: Number, required: true },
+  loanSetup: { type: String, required: true },
+  loanAmount: { type: Number, required: true },
+  intrestRate: { type: Number, required: true },
+  loanDate: { type: Date, required: true },
+  month: { type: Number, required: true },
+  week: { type: Number, required: true },
+  maturityDate: { type: Date, required: true },
+  nicNo: { type: String, required: true },
+  payments: [{
+      date: { type: Date },
+      amount: { type: Number }
+  }]
+});
+
+
 
 // Center Schema for Center Registration
 const centerSchema = new Schema({
@@ -41,5 +60,6 @@ const centerSchema = new Schema({
 const User = mongoose.model("User", userSchema);
 const Customer = mongoose.model("Customer", customerSchema);
 const Center = mongoose.model("Center", centerSchema);
+const Loan = mongoose.model("Loan",LoanSchema)
 
-export { User, Customer, Center };
+export { User, Customer, Center, Loan };

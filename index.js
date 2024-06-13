@@ -3,15 +3,14 @@ import Fastify from "fastify";
 import jwt from 'jsonwebtoken';
 import { connectToDatabase } from "./db.js";
 import { signUpSchema, loginSchema } from "./Validator/Validator.js";
-import { User, Center, Customer } from "./models/Database.js";
+import { User, Center, Customer, Loan } from "./models/Database.js";
 import bcrypt from 'bcrypt';
+import { v4 as uuidv4 } from 'uuid';
 
-const fastify = Fastify({
-  logger: true,
-});
+const fastify = Fastify({ logger: true });
 
 const port = process.env.PORT || 8080;
-fastify.listen({ port: port, host: "0.0.0.0" }, function (err, address) {
+fastify.listen({ port: port, host: "0.0.0.0" }, (err, address) => {
   if (err) {
     fastify.log.error(err);
     process.exit(1);
@@ -25,8 +24,31 @@ const run = async () => {
 };
 run();
 
+// Middleware to verify JWT
+const verifyToken = async (request, reply) => {
+  const token = request.headers['authorization'];
+  if (!token) return reply.code(401).send({ message: 'Unauthorized' });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWTPRIVATEKEY);
+    const user = await User.findById(decoded._id);
+    if (!user) return reply.code(401).send({ message: 'Unauthorized' });
+    request.user = user;
+  } catch (error) {
+    return reply.code(401).send({ message: 'Unauthorized' });
+  }
+};
+
+// Middleware to check if user is admin
+const checkAdmin = async (request, reply) => {
+  await verifyToken(request, reply);
+  if (request.user.role !== 'admin') {
+    return reply.code(403).send({ message: 'Forbidden' });
+  }
+};
+
+// Routes
 fastify.post("/api/signup", async (request, reply) => {
-  console.log(request.body);
   try {
     signUpSchema.parse(request.body);
   } catch (error) {
@@ -37,13 +59,11 @@ fastify.post("/api/signup", async (request, reply) => {
 
   const existingUser = await User.findOne({ email });
   if (existingUser) {
-    console.log("Existing User:", existingUser);
     return reply.code(400).send({ message: "User already exists" });
   }
 
   const salt = await bcrypt.genSalt(Number(process.env.SALT));
   const hashedPassword = await bcrypt.hash(password, salt);
-  console.log("Hashed Password:", hashedPassword);
 
   const role = pin == Number(process.env.ADMINSECRETPIN) ? "admin" : pin == Number(process.env.USERSECRETPIN) ? "customer" : null;
   if (!role) {
@@ -59,12 +79,10 @@ fastify.post("/api/signup", async (request, reply) => {
   });
 
   await newUser.save();
-  console.log("New User:", newUser);
   return { message: "User created successfully" };
 });
 
 fastify.post("/api/signin", async (request, reply) => {
-  console.log(request.body);
   try {
     loginSchema.parse(request.body);
   } catch (error) {
@@ -74,93 +92,151 @@ fastify.post("/api/signin", async (request, reply) => {
   const { email, password } = request.body;
   const userdata = await User.findOne({ email });
   if (!userdata) {
-    console.log("User not found with the given email:", email);
     return reply.code(400).send({ message: "Invalid email or password" });
   }
 
   const validPassword = await bcrypt.compare(password, userdata.password);
   if (!validPassword) {
-    console.log("Invalid password for the email:", email);
-    return reply.code(400).send({ message: "Invalid password" });
+    return reply.code(400).send({ message: "Invalid email or password" });
   }
 
-  const token = userdata.generateAuthToken(); 
-  console.log("Generated Auth Token:", token);
+  const token = jwt.sign({ _id: userdata._id }, process.env.JWTPRIVATEKEY);
   return { data: token, message: "Logged in successfully" };
 });
 
-fastify.post("/api/center", async (request, reply) => {
-  const token = request.headers['authorization'];
-  if (!token) return reply.code(401).send({ message: 'Unauthorized' });
+fastify.post("/api/center", { preHandler: checkAdmin }, async (request, reply) => {
+  const { centerNumber, centerName } = request.body;
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWTPRIVATEKEY);
-    const user = await User.findById(decoded._id);
-    if (!user || user.role !== "admin") {
-      return reply.code(403).send({ message: 'Forbidden' });
-    }
-
-    const newCenter = new Center({ centerNo: request.body.centerNumber, centerName: request.body.centerName });
-    await newCenter.save();
-    console.log("New center saved:", newCenter);
-    return { message: "Center saved successfully" };
-  } catch (error) {
-    return reply.code(403).send({ message: 'Forbidden' });
-  }
+  const newCenter = new Center({ centerNo: centerNumber, centerName });
+  await newCenter.save();
+  return { message: "Center saved successfully" };
 });
 
-fastify.get("/api/centers", async (request, reply) => {
-  const token = request.headers['authorization'];
-  if (!token) return reply.code(401).send({ message: 'Unauthorized' });
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWTPRIVATEKEY);
-    const user = await User.findById(decoded._id);
-    if (!user || user.role !== "admin") {
-      return reply.code(403).send({ message: 'Forbidden' });
-    }
-
-    const centers = await Center.find({}, { _id: 0, centerNo: 1, centerName: 1 });
-    console.log("All centers:", centers);
-    return { centers };
-  } catch (error) {
-    return reply.code(403).send({ message: 'Forbidden' });
-  }
+fastify.get("/api/centers", { preHandler: checkAdmin }, async (request, reply) => {
+  const centers = await Center.find({}, { _id: 0, centerNo: 1, centerName: 1 });
+  return { centers };
 });
 
-fastify.post("/api/member", async (request, reply) => {
+fastify.post("/api/member", { preHandler: checkAdmin }, async (request, reply) => {
   const { centerNo, memberCode, memberName, memberMobile, memberAddress } = request.body;
-  const token = request.headers['authorization'];
-  if (!token) return reply.code(401).send({ message: 'Unauthorized' });
+
+  const center = await Center.findOne({ centerNo });
+  if (!center) {
+    return reply.code(400).send({ message: 'Center does not exist' });
+  }
+
+  const newMember = new Customer({
+    centerNo,
+    memberNo: memberCode,
+    memberName,
+    memberMobileNumber: memberMobile,
+    memberAddress
+  });
+
+  await newMember.save();
+  return { message: "Member saved successfully" };
+});
+
+fastify.get("/api/loan", { preHandler: checkAdmin }, async (request, reply) => {
+  try {
+    const centers = await Center.find({});
+    const data = await Promise.all(centers.map(async (center) => {
+      const members = await Customer.find(
+          { centerNo: center.centerNo },
+          { memberCode: 1, memberName: 1 }
+      );
+      return {
+        centerno: center.centerNo,
+        centername: center.centerName,
+        members
+      };
+    }));
+    reply.send(data);
+  } catch (error) {
+    reply.code(500).send({ error: 'Internal server error' });
+  }
+});
+
+fastify.post("/api/loan", { preHandler: checkAdmin }, async (request, reply) => {
+  const { centerNo, memberCode, loanSetup, loanAmount, intrestRate, loanDate, month, week, maturityDate, nicNo } = request.body;
+
+  const center = await Center.findOne({ centerNo });
+  if (!center) {
+    return reply.code(400).send({ message: 'Center does not exist' });
+  }
+
+  const loanId = uuidv4();
+
+  const newLoanRegister = new Loan({
+    loanId,
+    memberCode,
+    centerNo,
+    loanSetup,
+    loanAmount,
+    intrestRate,
+    loanDate,
+    month,
+    week,
+    maturityDate,
+    nicNo,
+  });
+
+  await newLoanRegister.save();
+  return { message: "Loan registered successfully" };
+});
+
+fastify.get("/api/payment", { preHandler: verifyToken }, async (request, reply) => {
+  try {
+    const centers = await Center.find({});
+    const data = await Promise.all(centers.map(async (center) => {
+      const members = await Customer.find(
+          { centerNo: center.centerNo },
+          { memberCode: 1, memberName: 1 }
+      );
+      const memberData = await Promise.all(members.map(async (member) => {
+        const loans = await Loan.find(
+            { memberCode: member.memberCode },
+            { loanId: 1 }
+        );
+        return loans.map(loan => ({
+          memberCode: member.memberCode,
+          memberName: member.memberName,
+          loanId: loan.loanId
+        }));
+      }));
+      return {
+        centerCode: center.centerNo,
+        centerName: center.centerName,
+        members: memberData.flat()
+      };
+    }));
+    reply.send(data);
+  } catch (error) {
+    reply.code(500).send({ error: 'Internal server error' });
+  }
+});
+
+fastify.post("/api/payment", { preHandler: verifyToken }, async (request, reply) => {
+  const { loanid, paymentDate, paymentAmount } = request.body;
 
   try {
-    const decoded = jwt.verify(token, process.env.JWTPRIVATEKEY);
-    const user = await User.findById(decoded._id);
-    if (!user || user.role !== "admin") {
-      return reply.code(403).send({ message: 'Forbidden' });
+    const loan = await Loan.findOne({ loanid });
+
+    if (!loan) {
+      return reply.code(404).send({ message: 'Loan not found' });
     }
 
-    const center = await Center.findOne({ centerNo });
-    if (!center) {
-      return reply.code(400).send({ message: 'Center does not exist' });
-    }
-
-    const newMember = new Customer({
-      centerNo,
-      memberNo: memberCode,
-      memberName,
-      memberMobileNumber: memberMobile,
-      memberAddress
+    loan.payments.push({
+      date: paymentDate,
+      amount: paymentAmount
     });
 
-    console.log('New member created:', newMember);
+    await loan.save();
 
-    await newMember.save();
-    console.log('Member saved to database:', newMember);
-
-    return { message: "Member saved successfully" };
+    return reply.send({ message: 'Payment added successfully' });
   } catch (error) {
-    console.error('Error saving member:', error);
-    return reply.code(500).send({ message: 'Failed to create member' });
+    return reply.code(500).send({ message: 'Internal server error', error: error.message });
   }
 });
+
+export default fastify;
