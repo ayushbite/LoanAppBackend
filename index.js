@@ -236,13 +236,13 @@ fastify.get("/api/payment", { preHandler: verifyToken }, async (request, reply) 
       const memberData = await Promise.all(members.map(async (member) => {
         const loans = await Loan.find(
             { memberCode: member.memberCode },
-            { loanid: 1 }  // Include loanid in the projection
+            { loanid: 1 }  
         );
-        const loanIds = loans.map(loan => loan.loanid);  // Extract loan IDs
+        const loanIds = loans.map(loan => loan.loanid);  
         return {
           memberCode: member.memberCode,
           memberName: member.memberName,
-          loanIds: loanIds  // Include loan IDs in the member data
+          loanIds: loanIds  
         };
       }));
       return {
@@ -261,20 +261,20 @@ fastify.get("/api/payment", { preHandler: verifyToken }, async (request, reply) 
 
 
 fastify.post("/api/payment", { preHandler: verifyToken }, async (request, reply) => {
-  const { loanid, paymentDate, paymentAmount } = request.body;
+  const { centerCode , memberCode, loanNo,paymentdate,paymentamount } = request.body;
   console.log('Payment addition request received:', loanid);
 
   try {
-    const loan = await Loan.findOne({ loanid });
+    const loan = await Loan.findOne({ loanNo });
 
     if (!loan) {
-      console.log('Loan not found:', loanid);
+      console.log('Loan not found:', loanNo);
       return reply.code(404).send({ message: 'Loan not found' });
     }
 
     loan.payments.push({
-      date: paymentDate,
-      amount: paymentAmount
+      date: paymentdate,
+      amount: paymentamount
     });
 
     await loan.save();
