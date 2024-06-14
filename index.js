@@ -9,9 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import cors from '@fastify/cors'
 
 const fastify = Fastify({ logger: true });
-await fastify.register(cors, {
-
-});
+await fastify.register(cors, {});
 
 const port = process.env.PORT || 8080;
 fastify.listen({ port: port, host: "0.0.0.0" }, (err, address) => {
@@ -25,6 +23,7 @@ fastify.listen({ port: port, host: "0.0.0.0" }, (err, address) => {
 // Database connection
 const run = async () => {
   await connectToDatabase();
+  console.log('Database connected successfully');
 };
 run();
 
@@ -40,18 +39,19 @@ const verifyToken = async (request, reply) => {
     const tokenWithoutBearer = token.replace('Bearer ', '');
     console.log('Received token:', tokenWithoutBearer);
     const decoded = jwt.verify(tokenWithoutBearer, process.env.JWTPRIVATEKEY);
+    console.log('Token decoded:', decoded);
     const user = await User.findById(decoded._id);
     if (!user) {
       console.log('User not found for provided token');
       return reply.code(401).send({ message: 'Unauthorized' });
     }
     request.user = user;
+    console.log('User verified:', user.email);
   } catch (error) {
     console.log('Error verifying token:', error.message);
     return reply.code(401).send({ message: 'Unauthorized' });
   }
 };
-
 
 // Middleware to check if user is admin
 const checkAdmin = async (request, reply) => {
@@ -60,6 +60,7 @@ const checkAdmin = async (request, reply) => {
     console.log('User is not admin');
     return reply.code(403).send({ message: 'Forbidden' });
   }
+  console.log('Admin access granted for user:', request.user.email);
 };
 
 // Routes
@@ -142,12 +143,12 @@ fastify.post("/api/center", { preHandler: checkAdmin }, async (request, reply) =
 fastify.get("/api/center", { preHandler: checkAdmin }, async (request, reply) => {
   console.log('Request to fetch centers received');
   const centers = await Center.find({}, { _id: 0, centerNo: 1, centerName: 1 });
-  console.log('Centers fetched successfully');
+  console.log('Centers fetched successfully:', centers);
   return { centers };
 });
 
 fastify.post("/api/member", { preHandler: checkAdmin }, async (request, reply) => {
-  const { centerNo, memberCode, memberName, memberMobile, memberAddress,memberEmail } = request.body;
+  const { centerNo, memberCode, memberName, memberMobile, memberAddress, memberEmail } = request.body;
   console.log('Member creation request received:', memberCode, memberName);
 
   const center = await Center.findOne({ centerNo });
@@ -160,9 +161,9 @@ fastify.post("/api/member", { preHandler: checkAdmin }, async (request, reply) =
     centerNo,
     memberCode: memberCode,
     memberName,
-    email:memberEmail,
+    email: memberEmail,
     phoneNumber: memberMobile,
-    address:memberAddress
+    address: memberAddress
   });
 
   await newMember.save();
@@ -176,8 +177,8 @@ fastify.get("/api/loan", { preHandler: checkAdmin }, async (request, reply) => {
     const centers = await Center.find({});
     const data = await Promise.all(centers.map(async (center) => {
       const members = await Customer.find(
-          { centerNo: center.centerNo },
-          { memberCode: 1, memberName: 1 }
+        { centerNo: center.centerNo },
+        { memberCode: 1, memberName: 1 }
       );
       return {
         centerno: center.centerNo,
@@ -194,7 +195,7 @@ fastify.get("/api/loan", { preHandler: checkAdmin }, async (request, reply) => {
 });
 
 fastify.post("/api/loan", { preHandler: checkAdmin }, async (request, reply) => {
-  const { centerNo, memberCode, loanSetup, loanAmount, interestrate, loanDate, month, week, maturityDate, nicNumber} = request.body;
+  const { centerNo, memberCode, loanSetup, loanAmount, interestrate, loanDate, month, week, maturityDate, nicNumber } = request.body;
   console.log('Loan registration request received:', centerNo, memberCode);
 
   const center = await Center.findOne({ centerNo });
@@ -206,17 +207,17 @@ fastify.post("/api/loan", { preHandler: checkAdmin }, async (request, reply) => 
   const loanId = uuidv4();
 
   const newLoanRegister = new Loan({
-    loanid:loanId,
+    loanid: loanId,
     memberCode,
-    centerNO:centerNo,
+    centerNO: centerNo,
     loanSetup,
     loanAmount,
-    interestRate:interestrate,
+    interestRate: interestrate,
     loanDate,
     month,
     week,
     maturityDate,
-    nicNo:nicNumber,
+    nicNo: nicNumber,
   });
 
   await newLoanRegister.save();
@@ -230,19 +231,19 @@ fastify.get("/api/payment", { preHandler: verifyToken }, async (request, reply) 
     const centers = await Center.find({});
     const data = await Promise.all(centers.map(async (center) => {
       const members = await Customer.find(
-          { centerNo: center.centerNo },
-          { memberCode: 1, memberName: 1 }
+        { centerNo: center.centerNo },
+        { memberCode: 1, memberName: 1 }
       );
       const memberData = await Promise.all(members.map(async (member) => {
         const loans = await Loan.find(
-            { memberCode: member.memberCode },
-            { loanid: 1 }  
+          { memberCode: member.memberCode },
+          { loanid: 1 }
         );
-        const loanIds = loans.map(loan => loan.loanid);  
+        const loanIds = loans.map(loan => loan.loanid);
         return {
           memberCode: member.memberCode,
           memberName: member.memberName,
-          loanIds: loanIds  
+          loanIds: loanIds
         };
       }));
       return {
@@ -259,10 +260,9 @@ fastify.get("/api/payment", { preHandler: verifyToken }, async (request, reply) 
   }
 });
 
-
 fastify.post("/api/payment", { preHandler: verifyToken }, async (request, reply) => {
-  const { centerCode , memberCode, loanNo,paymentdate,paymentamount } = request.body;
-  console.log('Payment addition request received:', loanid);
+  const { centerCode, memberCode, loanNo, paymentdate, paymentamount } = request.body;
+  console.log('Payment addition request received:', loanNo);
 
   try {
     const loan = await Loan.findOne({ loanNo });
@@ -278,7 +278,7 @@ fastify.post("/api/payment", { preHandler: verifyToken }, async (request, reply)
     });
 
     await loan.save();
-    console.log('Payment added successfully:', loanid);
+    console.log('Payment added successfully:', loanNo);
     return reply.send({ message: 'Payment added successfully' });
   } catch (error) {
     console.log('Error adding payment:', error.message);
@@ -287,3 +287,5 @@ fastify.post("/api/payment", { preHandler: verifyToken }, async (request, reply)
 });
 
 export default fastify;
+
+console.log('Server setup complete');
