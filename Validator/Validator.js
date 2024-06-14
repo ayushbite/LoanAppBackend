@@ -2,10 +2,11 @@ import { z } from "zod";
 
 // Signup Schema
 export const signUpSchema = z.object({
-  firstname: z.string(), 
-  lastname: z.string(),  
+  firstName: z.string(),
+  lastName: z.string(),
   email: z.string().email(),
   password: z.string().min(8),
+  pin:z.string()
 });
 
 // Login Schema

@@ -22,7 +22,7 @@ userSchema.methods.generateAuthToken = function() {
 
 
 const customerSchema = new Schema({
-  name: { type: String, required: true },
+
   email: { type: String, required: true },
   phoneNumber: { type: String, required: true },
   memberCode: { type: String, required: true },
@@ -32,12 +32,12 @@ const customerSchema = new Schema({
 });
 
 const LoanSchema = new Schema({
-  loanid: { type: Number, required: true },
+  loanid: { type: String, required: true },
   memberCode: { type: Number, required: true },
   centerNO: { type: Number, required: true },
   loanSetup: { type: String, required: true },
   loanAmount: { type: Number, required: true },
-  intrestRate: { type: Number, required: true },
+  interestRate: { type: Number, required: true },
   loanDate: { type: Date, required: true },
   month: { type: Number, required: true },
   week: { type: Number, required: true },
